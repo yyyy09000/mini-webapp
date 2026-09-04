@@ -14,5 +14,6 @@
     <p>${message}</p>
     <p><a href="${pageContext.request.contextPath}/items">アイテム一覧へ</a></p>
 </main>
+<%@ include file="/WEB-INF/jsp/fragments/notify-script.jsp" %>
 </body>
 </html>

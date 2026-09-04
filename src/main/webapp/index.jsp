@@ -13,8 +13,10 @@
     <p>Java Servlet + JDBC の小さな Web アプリ基盤です。</p>
     <ul>
         <li><a href="${pageContext.request.contextPath}/home">ホーム（Servlet）</a></li>
+        <li><a href="${pageContext.request.contextPath}/calendar">カレンダー</a></li>
         <li><a href="${pageContext.request.contextPath}/items">アイテム一覧（CRUD）</a></li>
     </ul>
 </main>
+<%@ include file="/WEB-INF/jsp/fragments/notify-script.jsp" %>
 </body>
 </html>

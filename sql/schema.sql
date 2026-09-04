@@ -11,3 +11,13 @@ CREATE TABLE IF NOT EXISTS items (
 INSERT INTO items (name, description) VALUES
     ('サンプル1', '最初のアイテム'),
     ('サンプル2', '2つ目のアイテム');
+
+CREATE TABLE IF NOT EXISTS events (
+    id          BIGINT PRIMARY KEY AUTO_INCREMENT,
+    title       VARCHAR(100) NOT NULL,
+    event_date  DATE NOT NULL,
+    event_time  TIME,
+    description VARCHAR(500)
+);
+
+-- サンプル予定は AppContextListener で投入（日付計算を Java 側で行う）
