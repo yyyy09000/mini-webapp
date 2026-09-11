@@ -9,7 +9,7 @@
     <version>1.0-SNAPSHOT</version>
     <packaging>war</packaging>
     <name>mini-webapp</name>
-    <description>Java Servlet + JDBC の小さな Web アプリ基盤</description>
+    <description>予定カレンダー（Java Servlet + JDBC）</description>
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -63,7 +63,7 @@
     </dependencies>
 
     <build>
-        <finalName>mini-webapp</finalName>
+        <finalName>ROOT</finalName>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -88,8 +88,34 @@
                     <configuration>
                         <properties>
                             <cargo.servlet.port>8080</cargo.servlet.port>
+                            <cargo.servlet.contextpath>/</cargo.servlet.contextpath>
                         </properties>
                     </configuration>
+                    <deployables>
+                        <deployable>
+                            <groupId>com.example</groupId>
+                            <artifactId>mini-webapp</artifactId>
+                            <type>war</type>
+                            <properties>
+                                <context>/</context>
+                            </properties>
+                        </deployable>
+                    </deployables>
+                </configuration>
+            </plugin>
+            <!-- 開発用: ./start.sh または ./mvnw jetty:run（変更を検知して再読込） -->
+            <plugin>
+                <groupId>org.eclipse.jetty.ee10</groupId>
+                <artifactId>jetty-ee10-maven-plugin</artifactId>
+                <version>12.0.16</version>
+                <configuration>
+                    <webApp>
+                        <contextPath>/</contextPath>
+                    </webApp>
+                    <httpConnector>
+                        <port>8080</port>
+                    </httpConnector>
+                    <scan>1</scan>
                 </configuration>
             </plugin>
         </plugins>
