@@ -23,12 +23,9 @@ import java.util.Optional;
 
 /**
  * 月カレンダーの表示・予定の登録/更新/削除。
- * GET  /calendar
- * GET  /calendar?action=new
- * GET  /calendar?action=edit&id=
- * POST /calendar  action=create|update|delete
+ * URL は http://localhost:8080/ のみ。
  */
-@WebServlet(name = "CalendarServlet", urlPatterns = {"/calendar"})
+@WebServlet(name = "CalendarServlet", urlPatterns = {""})
 public class CalendarServlet extends HttpServlet {
 
     private final EventDao eventDao = new EventDao();
@@ -36,27 +33,8 @@ public class CalendarServlet extends HttpServlet {
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp)
             throws ServletException, IOException {
-        String action = Optional.ofNullable(req.getParameter("action")).orElse("month");
         try {
-            switch (action) {
-                case "new" -> {
-                    YearMonth ym = resolveYearMonth(req);
-                    Event event = new Event();
-                    event.setEventDate(ym.atDay(Math.min(LocalDate.now().getDayOfMonth(), ym.lengthOfMonth())));
-                    if (YearMonth.now().equals(ym)) {
-                        event.setEventDate(LocalDate.now());
-                    }
-                    showForm(req, resp, event, "create", ym);
-                }
-                case "edit" -> {
-                    long id = Long.parseLong(req.getParameter("id"));
-                    Event event = eventDao.findById(id)
-                            .orElseThrow(() -> new ServletException("予定が見つかりません: id=" + id));
-                    YearMonth ym = YearMonth.from(event.getEventDate());
-                    showForm(req, resp, event, "update", ym);
-                }
-                default -> showMonth(req, resp);
-            }
+            showMonth(req, resp);
         } catch (SQLException e) {
             throw new ServletException("DB エラー", e);
         }
@@ -66,46 +44,67 @@ public class CalendarServlet extends HttpServlet {
     protected void doPost(HttpServletRequest req, HttpServletResponse resp)
             throws ServletException, IOException {
         String action = Optional.ofNullable(req.getParameter("action")).orElse("");
+        boolean ajax = isAjax(req);
         try {
             switch (action) {
                 case "create" -> {
                     Event event = bindEvent(req);
-                    if (!validate(req, resp, event, "create")) {
+                    if (!validate(req, resp, event, ajax)) {
                         return;
                     }
                     eventDao.insert(event);
-                    redirectToMonth(req, resp, event.getEventDate());
+                    if (ajax) {
+                        writeEventJson(resp, event);
+                    } else {
+                        redirectToMonth(req, resp, event.getEventDate());
+                    }
                 }
                 case "update" -> {
                     Event event = bindEvent(req);
                     event.setId(Long.parseLong(req.getParameter("id")));
-                    if (!validate(req, resp, event, "update")) {
+                    if (!validate(req, resp, event, ajax)) {
                         return;
                     }
                     eventDao.update(event);
-                    redirectToMonth(req, resp, event.getEventDate());
+                    if (ajax) {
+                        writeEventJson(resp, event);
+                    } else {
+                        redirectToMonth(req, resp, event.getEventDate());
+                    }
                 }
                 case "delete" -> {
                     long id = Long.parseLong(req.getParameter("id"));
                     Optional<Event> existing = eventDao.findById(id);
                     eventDao.delete(id);
-                    if (existing.isPresent()) {
+                    if (ajax) {
+                        resp.setCharacterEncoding("UTF-8");
+                        resp.setContentType("application/json; charset=UTF-8");
+                        resp.getWriter().print("{\"ok\":true,\"deleted\":" + id + "}");
+                    } else if (existing.isPresent()) {
                         redirectToMonth(req, resp, existing.get().getEventDate());
                     } else {
                         YearMonth ym = resolveYearMonth(req);
-                        resp.sendRedirect(req.getContextPath()
-                                + "/calendar?year=" + ym.getYear() + "&month=" + ym.getMonthValue());
+                        resp.sendRedirect(homeUrl(req, "year=" + ym.getYear() + "&month=" + ym.getMonthValue()));
                     }
                 }
                 default -> throw new ServletException("不明な action: " + action);
             }
         } catch (SQLException e) {
+            if (ajax) {
+                resp.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+                resp.setCharacterEncoding("UTF-8");
+                resp.setContentType("application/json; charset=UTF-8");
+                resp.getWriter().print("{\"ok\":false,\"error\":\"DB エラー\"}");
+                return;
+            }
             throw new ServletException("DB エラー", e);
         }
     }
 
     private void showMonth(HttpServletRequest req, HttpServletResponse resp)
             throws ServletException, IOException, SQLException {
+        // 同じ日・時間・内容の重複があれば片方を削除
+        eventDao.deleteAllDuplicates();
         YearMonth ym = resolveYearMonth(req);
         List<Event> events = eventDao.findByMonth(ym.getYear(), ym.getMonthValue());
         List<List<CalendarCell>> weeks = buildWeeks(ym, events);
@@ -121,16 +120,6 @@ public class CalendarServlet extends HttpServlet {
         req.setAttribute("weeks", weeks);
         req.setAttribute("events", events);
         req.getRequestDispatcher("/WEB-INF/jsp/calendar.jsp").forward(req, resp);
-    }
-
-    private void showForm(HttpServletRequest req, HttpServletResponse resp,
-                          Event event, String mode, YearMonth ym)
-            throws ServletException, IOException {
-        req.setAttribute("event", event);
-        req.setAttribute("mode", mode);
-        req.setAttribute("year", ym.getYear());
-        req.setAttribute("month", ym.getMonthValue());
-        req.getRequestDispatcher("/WEB-INF/jsp/event-form.jsp").forward(req, resp);
     }
 
     private Event bindEvent(HttpServletRequest req) {
@@ -156,24 +145,81 @@ public class CalendarServlet extends HttpServlet {
         return event;
     }
 
-    private boolean validate(HttpServletRequest req, HttpServletResponse resp, Event event, String mode)
-            throws ServletException, IOException {
+    private boolean validate(HttpServletRequest req, HttpServletResponse resp, Event event, boolean ajax)
+            throws IOException {
         if (event.getTitle() == null || event.getEventDate() == null) {
-            req.setAttribute("error", "タイトルと日付は必須です");
-            YearMonth ym = event.getEventDate() != null
-                    ? YearMonth.from(event.getEventDate())
-                    : YearMonth.now();
-            showForm(req, resp, event, mode, ym);
+            writeValidationError(resp, ajax, "タイトルと日付は必須です");
+            return false;
+        }
+        String action = Optional.ofNullable(req.getParameter("action")).orElse("");
+        if ("create".equals(action) && event.getEventDate().isBefore(LocalDate.now())) {
+            writeValidationError(resp, ajax, "過去の日付には予定を追加できません");
             return false;
         }
         return true;
     }
 
+    private static void writeValidationError(HttpServletResponse resp, boolean ajax, String message)
+            throws IOException {
+        if (ajax) {
+            resp.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+            resp.setCharacterEncoding("UTF-8");
+            resp.setContentType("application/json; charset=UTF-8");
+            resp.getWriter().print("{\"ok\":false,\"error\":" + jsonString(message) + "}");
+        } else {
+            resp.sendError(HttpServletResponse.SC_BAD_REQUEST, message);
+        }
+    }
+
+    private static boolean isAjax(HttpServletRequest req) {
+        return "1".equals(req.getParameter("ajax"))
+                || "XMLHttpRequest".equals(req.getHeader("X-Requested-With"));
+    }
+
+    private static void writeEventJson(HttpServletResponse resp, Event event) throws IOException {
+        resp.setCharacterEncoding("UTF-8");
+        resp.setContentType("application/json; charset=UTF-8");
+        StringBuilder sb = new StringBuilder();
+        sb.append("{\"ok\":true,\"id\":").append(event.getId());
+        sb.append(",\"title\":").append(jsonString(event.getTitle()));
+        sb.append(",\"eventDate\":\"").append(event.getEventDate()).append('"');
+        sb.append(",\"eventTime\":");
+        if (event.getEventTime() == null) {
+            sb.append("null");
+        } else {
+            sb.append(jsonString(event.getEventTimeLabel()));
+        }
+        sb.append(",\"description\":").append(jsonString(event.getDescription()));
+        sb.append('}');
+        resp.getWriter().print(sb);
+    }
+
+    private static String jsonString(String value) {
+        if (value == null) {
+            return "null";
+        }
+        String escaped = value
+                .replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\n", "\\n")
+                .replace("\r", "\\r")
+                .replace("\t", "\\t");
+        return "\"" + escaped + "\"";
+    }
+
     private void redirectToMonth(HttpServletRequest req, HttpServletResponse resp, LocalDate date)
             throws IOException {
         YearMonth ym = YearMonth.from(date);
-        resp.sendRedirect(req.getContextPath()
-                + "/calendar?year=" + ym.getYear() + "&month=" + ym.getMonthValue());
+        resp.sendRedirect(homeUrl(req, "year=" + ym.getYear() + "&month=" + ym.getMonthValue()));
+    }
+
+    /** コンテキストルート（/）への URL を組み立てる */
+    static String homeUrl(HttpServletRequest req, String query) {
+        String base = req.getContextPath().isEmpty() ? "/" : req.getContextPath() + "/";
+        if (query == null || query.isBlank()) {
+            return base;
+        }
+        return base + "?" + query;
     }
 
     private static YearMonth resolveYearMonth(HttpServletRequest req) {

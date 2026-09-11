@@ -3,13 +3,13 @@
  * - 画面上部バナー
  * - 画面内トースト（許可不要・必ず見える）
  * - ブラウザ通知（許可時）
- * - 開始1時間前に個別通知（ページを開いている間は setTimeout で予約）
+ * - 開始1時間前に個別通知 + Web Speech API で読み上げ
  */
 (function () {
   const script = document.currentScript;
   const contextPath = (script && script.dataset.context) || "";
   const apiUrl = contextPath + "/api/today-events";
-  const calendarUrl = contextPath + "/calendar";
+  const calendarUrl = contextPath + "/";
 
   const DAY_KEY = "event-notify-day:";
   const EVENT_KEY = "event-notify-id:";
@@ -29,6 +29,73 @@
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;");
+  }
+
+  function canSpeak() {
+    return typeof window !== "undefined" && "speechSynthesis" in window;
+  }
+
+  function pickJapaneseVoice() {
+    if (!canSpeak()) {
+      return null;
+    }
+    const voices = window.speechSynthesis.getVoices() || [];
+    return (
+      voices.find(function (v) {
+        return v.lang === "ja-JP";
+      }) ||
+      voices.find(function (v) {
+        return (v.lang || "").toLowerCase().startsWith("ja");
+      }) ||
+      null
+    );
+  }
+
+  function warmUpVoices() {
+    if (!canSpeak()) {
+      return;
+    }
+    window.speechSynthesis.getVoices();
+    window.speechSynthesis.onvoiceschanged = function () {
+      window.speechSynthesis.getVoices();
+    };
+  }
+
+  /** Web Speech API で日本語読み上げ */
+  function speak(text) {
+    if (!canSpeak() || !text) {
+      return false;
+    }
+    try {
+      window.speechSynthesis.cancel();
+      const utter = new SpeechSynthesisUtterance(text);
+      utter.lang = "ja-JP";
+      utter.rate = 1;
+      utter.pitch = 1;
+      const voice = pickJapaneseVoice();
+      if (voice) {
+        utter.voice = voice;
+      }
+      window.speechSynthesis.speak(utter);
+      return true;
+    } catch (e) {
+      console.warn("[notify] speech failed", e);
+      return false;
+    }
+  }
+
+  function buildReminderSpeech(ev) {
+    const title = (ev && ev.title ? String(ev.title).trim() : "") || "予定";
+    let timePart = "";
+    if (ev && ev.eventTime) {
+      const parts = String(ev.eventTime).split(":");
+      const h = Number(parts[0]);
+      const m = Number(parts[1] || 0);
+      if (!Number.isNaN(h)) {
+        timePart = m ? h + "時" + m + "分の" : h + "時の";
+      }
+    }
+    return timePart + title + "まで、あと1時間です";
   }
 
   function ensureBannerHost() {
@@ -102,9 +169,6 @@
   function notifyUser(title, body, tag) {
     const ok = showBrowserNotification(title, body, tag);
     showToast(title, body);
-    if (!ok && canNotify() && Notification.permission !== "granted") {
-      // 許可前でもトーストは出ている
-    }
     return ok;
   }
 
@@ -129,6 +193,7 @@
         : perm === "denied"
           ? "ブラウザ通知: 拒否（設定から許可してください）"
           : "ブラウザ通知: OFF";
+    const speechLabel = canSpeak() ? "音声読み上げ: ON" : "音声読み上げ: 非対応";
 
     host.innerHTML =
       "<div class=\"today-notify-inner\">" +
@@ -138,6 +203,8 @@
       events.length +
       " 件あります <span class=\"perm-label\">" +
       escapeHtml(permLabel) +
+      "</span> <span class=\"perm-label\">" +
+      escapeHtml(speechLabel) +
       "</span></p>" +
       "<ul>" +
       lines +
@@ -148,6 +215,7 @@
       (perm === "granted"
         ? ' <button type="button" class="notify-test">今すぐテスト通知</button>'
         : ' <button type="button" class="notify-enable">ブラウザ通知を許可</button>') +
+      ' <button type="button" class="notify-test-speech">音声テスト</button>' +
       "</p>" +
       "</div>";
     host.hidden = false;
@@ -166,7 +234,25 @@
           localStorage.removeItem(eventKey(ev.id, date));
         });
         notifyUser("テスト通知", "通知はこのように表示されます", "test-" + Date.now());
+        const sample = events.find(function (ev) {
+          return ev.eventTime;
+        }) || { title: "サンプル予定", eventTime: "15:00" };
+        speak(buildReminderSpeech(sample));
         scheduleReminders(date, events);
+      });
+    }
+    const speechBtn = host.querySelector(".notify-test-speech");
+    if (speechBtn) {
+      speechBtn.addEventListener("click", function () {
+        const sample = events.find(function (ev) {
+          return ev.eventTime;
+        }) || events[0] || { title: "サンプル予定", eventTime: "15:00" };
+        const text = buildReminderSpeech(sample);
+        if (!speak(text)) {
+          alert("このブラウザは音声読み上げに対応していません");
+          return;
+        }
+        showToast("音声テスト", text);
       });
     }
   }
@@ -191,6 +277,7 @@
     if (!canNotify()) {
       showToast("通知非対応", "このブラウザは OS 通知に対応していません。画面内通知のみ使えます。");
       dailySummary(date, events);
+      scheduleReminders(date, events);
       return;
     }
     Notification.requestPermission().then(function (perm) {
@@ -201,22 +288,12 @@
         }
         dailySummary(date, events);
         scheduleReminders(date, events);
-        showToast("通知を許可しました", "予定の1時間前に知らせます");
+        showToast("通知を許可しました", "予定の1時間前に知らせます（音声あり）");
       } else if (perm === "denied") {
         showToast("通知が拒否されています", "ブラウザのサイト設定から通知を許可してください");
+        scheduleReminders(date, events);
       }
     });
-  }
-
-  function parseTimeToMinutes(timeText) {
-    if (!timeText) {
-      return null;
-    }
-    const parts = timeText.split(":");
-    if (parts.length < 2) {
-      return null;
-    }
-    return Number(parts[0]) * 60 + Number(parts[1]);
   }
 
   function eventStartDate(dateText, timeText) {
@@ -234,6 +311,7 @@
     const body =
       "1時間後に開始" + (ev.description ? " — " + ev.description : "");
     notifyUser(ev.title, body, "ev-" + ev.id);
+    speak(buildReminderSpeech(ev));
     localStorage.setItem(key, "1");
   }
 
@@ -262,12 +340,10 @@
       const startMs = start.getTime();
 
       if (now >= startMs) {
-        // 開始済みはスキップ
         return;
       }
 
       if (now >= remindAt) {
-        // すでに1時間前を過ぎている → すぐ通知
         fireReminder(date, ev);
         return;
       }
@@ -292,12 +368,10 @@
     const events = data.events || [];
     renderBanner(date, events);
 
-    // 許可済みならまとめ通知 + 1時間前タイマー
     if (canNotify() && Notification.permission === "granted") {
       dailySummary(date, events);
       scheduleReminders(date, events);
     } else if (events.length) {
-      // 未許可でも、画面内の今日バナーは出る。初回だけ画面内で今日の予定を知らせる
       if (!localStorage.getItem(todayKey(date) + ":toast")) {
         const body = events
           .map(function (ev) {
@@ -307,10 +381,11 @@
         showToast("今日の予定（" + events.length + "件）", body);
         localStorage.setItem(todayKey(date) + ":toast", "1");
       }
-      // タイマー自体は許可前でも画面トースト用に予約
       scheduleReminders(date, events);
     }
   }
+
+  warmUpVoices();
 
   fetch(apiUrl, { headers: { Accept: "application/json" } })
     .then(function (res) {
@@ -321,7 +396,6 @@
     })
     .then(function (data) {
       run(data);
-      // 予定の増減に追従（タイマー再設定）
       setInterval(function () {
         fetch(apiUrl, { headers: { Accept: "application/json" } })
           .then(function (res) {

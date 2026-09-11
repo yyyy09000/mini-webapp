@@ -59,6 +59,111 @@ th, td {
     font: inherit;
 }
 
+.btn-small {
+    padding: 0.3rem 0.7rem;
+    font-size: 0.85rem;
+}
+
+.event-row {
+    cursor: default;
+}
+
+.event-row:hover {
+    background: #f7f3eb;
+}
+
+.js-inline-edit {
+    cursor: pointer;
+    vertical-align: middle;
+}
+
+.js-inline-edit:hover {
+    background: #e7f1ed;
+}
+
+.js-inline-edit.is-editing {
+    padding: 0.25rem;
+    background: #fff;
+}
+
+.inline-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 0.35rem 0.4rem;
+    border: 1px solid var(--accent);
+    font: inherit;
+    background: #fff;
+}
+
+.hint {
+    margin: 0 0 0.5rem;
+    color: #6b6560;
+    font-size: 0.9rem;
+}
+
+.ev-link {
+    display: flex;
+    align-items: baseline;
+    gap: 0.25rem;
+    width: 100%;
+    padding: 0.15rem 0.3rem;
+    color: inherit;
+    text-decoration: none;
+    background: transparent;
+    border: 0;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.ev-link:hover {
+    background: #d5e8e0;
+}
+
+.event-dialog {
+    border: 1px solid var(--line);
+    padding: 0;
+    max-width: 420px;
+    width: calc(100% - 2rem);
+    background: #fff;
+}
+
+.event-dialog::backdrop {
+    background: rgba(28, 27, 25, 0.35);
+}
+
+.event-dialog .form {
+    padding: 1.25rem;
+    max-width: none;
+}
+
+.event-dialog h2 {
+    margin-top: 0;
+}
+
+.dialog-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+}
+
+.btn-ghost {
+    background: #ece7de;
+    color: var(--ink);
+}
+
+.cell-link {
+    color: inherit;
+    text-decoration: none;
+    display: block;
+}
+
+.cell-link:hover {
+    color: var(--accent);
+    text-decoration: underline;
+}
+
 .actions {
     display: flex;
     gap: 0.75rem;
@@ -114,6 +219,7 @@ table.calendar {
     table-layout: fixed;
     border-collapse: collapse;
     margin: 1rem 0 2rem;
+    user-select: none;
 }
 
 table.calendar th,
@@ -137,10 +243,129 @@ table.calendar td.out-month {
     color: #9a958c;
 }
 
+table.calendar td.js-day-cell {
+    cursor: pointer;
+}
+
+table.calendar td.js-day-cell.is-selected {
+    background: #d5e8e0;
+    box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+table.calendar td.js-day-cell.is-selected:hover {
+    background: #c5ddd3;
+}
+
+.field-hint {
+    display: block;
+    margin-top: 0.25rem;
+    font-size: 0.8rem;
+    color: #6b6560;
+    font-weight: normal;
+}
+
+.user-select-none {
+    user-select: none;
+}
+
+table.calendar td.js-day-cell.is-past {
+    cursor: not-allowed;
+    background:
+        repeating-linear-gradient(
+            -45deg,
+            transparent,
+            transparent 6px,
+            rgba(28, 27, 25, 0.04) 6px,
+            rgba(28, 27, 25, 0.04) 12px
+        ),
+        #e4e1db;
+    color: #8a857c;
+    opacity: 1;
+}
+
+table.calendar td.js-day-cell.is-past.in-month {
+    background:
+        repeating-linear-gradient(
+            -45deg,
+            transparent,
+            transparent 6px,
+            rgba(28, 27, 25, 0.05) 6px,
+            rgba(28, 27, 25, 0.05) 12px
+        ),
+        #ebe8e2;
+}
+
+table.calendar td.js-day-cell.is-past.out-month {
+    background:
+        repeating-linear-gradient(
+            -45deg,
+            transparent,
+            transparent 6px,
+            rgba(28, 27, 25, 0.03) 6px,
+            rgba(28, 27, 25, 0.03) 12px
+        ),
+        #e0ddd6;
+    color: #a09b93;
+}
+
+table.calendar td.js-day-cell.is-past:hover {
+    background:
+        repeating-linear-gradient(
+            -45deg,
+            transparent,
+            transparent 6px,
+            rgba(28, 27, 25, 0.05) 6px,
+            rgba(28, 27, 25, 0.05) 12px
+        ),
+        #ebe8e2;
+}
+
+table.calendar td.js-day-cell.is-past .day-num {
+    cursor: not-allowed;
+    color: #7a756c;
+    text-decoration: line-through;
+    text-decoration-thickness: 1.5px;
+    text-decoration-color: #a8a39a;
+}
+
+table.calendar td.js-day-cell.is-past .day-num:hover {
+    background: transparent;
+    color: #7a756c;
+}
+
+table.calendar td.js-day-cell.is-past .day-events li {
+    background: #d9d5ce;
+}
+
+table.calendar td.js-day-cell.is-past .ev-link {
+    color: #6f6a62;
+}
+
+table.calendar td.js-day-cell.is-past .ev-time {
+    color: #8a857c;
+}
+
 .day-num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.6rem;
+    height: 1.6rem;
+    padding: 0 0.2rem;
+    margin-bottom: 0.25rem;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
     font-size: 0.85rem;
     font-weight: 600;
-    margin-bottom: 0.25rem;
+    cursor: pointer;
+}
+
+.day-num:hover {
+    background: var(--accent);
+    color: #fff;
 }
 
 .day-events {
@@ -155,19 +380,6 @@ table.calendar td.out-month {
     font-size: 0.75rem;
     background: #e7f1ed;
     padding: 0;
-}
-
-.ev-link {
-    display: flex;
-    align-items: baseline;
-    gap: 0.25rem;
-    padding: 0.15rem 0.3rem;
-    color: inherit;
-    text-decoration: none;
-}
-
-.ev-link:hover {
-    background: #d5e8e0;
 }
 
 .ev-time {
@@ -229,7 +441,8 @@ h2 {
     font: inherit;
 }
 
-.today-notify .notify-test {
+.today-notify .notify-test,
+.today-notify .notify-test-speech {
     margin-left: 0.75rem;
     background: #fff;
     color: var(--accent);

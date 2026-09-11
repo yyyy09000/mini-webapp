@@ -16,7 +16,6 @@ import java.time.LocalTime;
 
 /**
  * 起動時にテーブルとサンプルデータを用意する。
- * スキーマ変更はここか sql/schema.sql に寄せる。
  */
 @WebListener
 public class AppContextListener implements ServletContextListener {
@@ -25,26 +24,6 @@ public class AppContextListener implements ServletContextListener {
     public void contextInitialized(ServletContextEvent sce) {
         try (Connection conn = DbUtil.getConnection();
              Statement st = conn.createStatement()) {
-            st.execute("""
-                    CREATE TABLE IF NOT EXISTS items (
-                        id          BIGINT PRIMARY KEY AUTO_INCREMENT,
-                        name        VARCHAR(100) NOT NULL,
-                        description VARCHAR(500),
-                        created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                    """);
-
-            try (var rs = st.executeQuery("SELECT COUNT(*) FROM items")) {
-                rs.next();
-                if (rs.getInt(1) == 0) {
-                    st.execute("""
-                            INSERT INTO items (name, description) VALUES
-                            ('サンプル1', '最初のアイテム'),
-                            ('サンプル2', '2つ目のアイテム')
-                            """);
-                }
-            }
-
             st.execute("""
                     CREATE TABLE IF NOT EXISTS events (
                         id          BIGINT PRIMARY KEY AUTO_INCREMENT,
@@ -74,7 +53,6 @@ public class AppContextListener implements ServletContextListener {
         }
     }
 
-    /** 既存 DB 向け: event_time が無ければ追加する。 */
     private static void ensureEventTimeColumn(Statement st) {
         try {
             st.execute("ALTER TABLE events ADD COLUMN event_time TIME");

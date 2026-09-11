@@ -84,6 +84,16 @@ public class EventDao {
     }
 
     public Event insert(Event event) throws SQLException {
+        Optional<Event> same = findSameContent(event, null);
+        if (same.isPresent()) {
+            Event existing = same.get();
+            event.setId(existing.getId());
+            event.setTitle(existing.getTitle());
+            event.setEventDate(existing.getEventDate());
+            event.setEventTime(existing.getEventTime());
+            event.setDescription(existing.getDescription());
+            return event;
+        }
         String sql = "INSERT INTO events (title, event_date, event_time, description) VALUES (?, ?, ?, ?)";
         try (Connection conn = DbUtil.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
@@ -108,7 +118,9 @@ public class EventDao {
              PreparedStatement ps = conn.prepareStatement(sql)) {
             bind(ps, event);
             ps.setLong(5, event.getId());
-            return ps.executeUpdate() == 1;
+            boolean updated = ps.executeUpdate() == 1;
+            deleteDuplicatesOf(event);
+            return updated;
         }
     }
 
@@ -118,6 +130,135 @@ public class EventDao {
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setLong(1, id);
             return ps.executeUpdate() == 1;
+        }
+    }
+
+    /**
+     * 同じ日・同じ時間・同じタイトル・同じ説明の重複を探し、id が小さい方を残して削除する。
+     */
+    public int deleteAllDuplicates() throws SQLException {
+        String sql = """
+                DELETE FROM events
+                WHERE id IN (
+                    SELECT id FROM (
+                        SELECT e1.id
+                        FROM events e1
+                        INNER JOIN events e2
+                          ON e2.id < e1.id
+                         AND e2.event_date = e1.event_date
+                         AND e2.title = e1.title
+                         AND (
+                              (e2.event_time IS NULL AND e1.event_time IS NULL)
+                              OR e2.event_time = e1.event_time
+                         )
+                         AND (
+                              (e2.description IS NULL AND e1.description IS NULL)
+                              OR (e2.description IS NOT NULL AND e1.description IS NOT NULL
+                                  AND e2.description = e1.description)
+                         )
+                    ) dup
+                )
+                """;
+        try (Connection conn = DbUtil.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            return ps.executeUpdate();
+        }
+    }
+
+    /** 指定内容と同一の予定があれば返す（excludeId は更新時に自分を除外） */
+    public Optional<Event> findSameContent(Event event, Long excludeId) throws SQLException {
+        String sql = """
+                SELECT %s
+                FROM events
+                WHERE event_date = ?
+                  AND title = ?
+                  AND (
+                       (? IS NULL AND event_time IS NULL)
+                       OR event_time = ?
+                  )
+                  AND (
+                       (? IS NULL AND description IS NULL)
+                       OR description = ?
+                  )
+                  AND (? IS NULL OR id <> ?)
+                ORDER BY id
+                LIMIT 1
+                """.formatted(SELECT_COLS);
+        try (Connection conn = DbUtil.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            int i = 1;
+            ps.setDate(i++, Date.valueOf(event.getEventDate()));
+            ps.setString(i++, event.getTitle());
+            if (event.getEventTime() == null) {
+                ps.setNull(i++, Types.TIME);
+                ps.setNull(i++, Types.TIME);
+            } else {
+                Time t = Time.valueOf(event.getEventTime());
+                ps.setTime(i++, t);
+                ps.setTime(i++, t);
+            }
+            String desc = event.getDescription();
+            if (desc == null) {
+                ps.setNull(i++, Types.VARCHAR);
+                ps.setNull(i++, Types.VARCHAR);
+            } else {
+                ps.setString(i++, desc);
+                ps.setString(i++, desc);
+            }
+            if (excludeId == null) {
+                ps.setNull(i++, Types.BIGINT);
+                ps.setLong(i, -1L);
+            } else {
+                ps.setLong(i++, excludeId);
+                ps.setLong(i, excludeId);
+            }
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return Optional.of(map(rs));
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
+    private void deleteDuplicatesOf(Event event) throws SQLException {
+        String sql = """
+                DELETE FROM events
+                WHERE id <> ?
+                  AND event_date = ?
+                  AND title = ?
+                  AND (
+                       (? IS NULL AND event_time IS NULL)
+                       OR event_time = ?
+                  )
+                  AND (
+                       (? IS NULL AND description IS NULL)
+                       OR description = ?
+                  )
+                """;
+        try (Connection conn = DbUtil.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            int i = 1;
+            ps.setLong(i++, event.getId());
+            ps.setDate(i++, Date.valueOf(event.getEventDate()));
+            ps.setString(i++, event.getTitle());
+            if (event.getEventTime() == null) {
+                ps.setNull(i++, Types.TIME);
+                ps.setNull(i++, Types.TIME);
+            } else {
+                Time t = Time.valueOf(event.getEventTime());
+                ps.setTime(i++, t);
+                ps.setTime(i++, t);
+            }
+            String desc = event.getDescription();
+            if (desc == null) {
+                ps.setNull(i++, Types.VARCHAR);
+                ps.setNull(i, Types.VARCHAR);
+            } else {
+                ps.setString(i++, desc);
+                ps.setString(i, desc);
+            }
+            ps.executeUpdate();
         }
     }
 
