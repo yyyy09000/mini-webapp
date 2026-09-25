@@ -15,6 +15,7 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.YearMonth;
 import java.time.format.DateTimeParseException;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -135,6 +136,15 @@ public class CalendarServlet extends HttpServlet {
             event.setEventDate(null);
         }
         try {
+            String endText = blankToNull(req.getParameter("eventDateEnd"));
+            if (endText != null) {
+                event.setEventDateEnd(LocalDate.parse(endText));
+            }
+        } catch (DateTimeParseException ignored) {
+            event.setEventDateEnd(null);
+        }
+        normalizeDateRange(event);
+        try {
             String timeText = blankToNull(req.getParameter("eventTime"));
             if (timeText != null) {
                 event.setEventTime(LocalTime.parse(timeText));
@@ -145,6 +155,21 @@ public class CalendarServlet extends HttpServlet {
         return event;
     }
 
+    private static void normalizeDateRange(Event event) {
+        if (event.getEventDate() == null) {
+            return;
+        }
+        if (event.getEventDateEnd() == null) {
+            event.setEventDateEnd(event.getEventDate());
+            return;
+        }
+        if (event.getEventDateEnd().isBefore(event.getEventDate())) {
+            LocalDate tmp = event.getEventDate();
+            event.setEventDate(event.getEventDateEnd());
+            event.setEventDateEnd(tmp);
+        }
+    }
+
     private boolean validate(HttpServletRequest req, HttpServletResponse resp, Event event, boolean ajax)
             throws IOException {
         if (event.getTitle() == null || event.getEventDate() == null) {
@@ -152,8 +177,19 @@ public class CalendarServlet extends HttpServlet {
             return false;
         }
         String action = Optional.ofNullable(req.getParameter("action")).orElse("");
-        if ("create".equals(action) && event.getEventDate().isBefore(LocalDate.now())) {
-            writeValidationError(resp, ajax, "過去の日付には予定を追加できません");
+        LocalDate today = LocalDate.now();
+        if ("create".equals(action)) {
+            if (event.getEndDateOrStart().isBefore(today)) {
+                writeValidationError(resp, ajax, "過去の日付には予定を追加できません");
+                return false;
+            }
+            if (event.getEventDate().isBefore(today)) {
+                event.setEventDate(today);
+            }
+        }
+        long days = ChronoUnit.DAYS.between(event.getEventDate(), event.getEndDateOrStart()) + 1;
+        if (days > 93) {
+            writeValidationError(resp, ajax, "一度に指定できるのは最大93日分です");
             return false;
         }
         return true;
@@ -183,6 +219,7 @@ public class CalendarServlet extends HttpServlet {
         sb.append("{\"ok\":true,\"id\":").append(event.getId());
         sb.append(",\"title\":").append(jsonString(event.getTitle()));
         sb.append(",\"eventDate\":\"").append(event.getEventDate()).append('"');
+        sb.append(",\"eventDateEnd\":\"").append(event.getEndDateOrStart()).append('"');
         sb.append(",\"eventTime\":");
         if (event.getEventTime() == null) {
             sb.append("null");
@@ -238,7 +275,18 @@ public class CalendarServlet extends HttpServlet {
     private static List<List<CalendarCell>> buildWeeks(YearMonth ym, List<Event> events) {
         Map<LocalDate, List<Event>> byDate = new HashMap<>();
         for (Event event : events) {
-            byDate.computeIfAbsent(event.getEventDate(), d -> new ArrayList<>()).add(event);
+            LocalDate day = event.getEventDate();
+            LocalDate end = event.getEndDateOrStart();
+            if (day == null) {
+                continue;
+            }
+            if (end == null || end.isBefore(day)) {
+                end = day;
+            }
+            int n = 0;
+            for (LocalDate d = day; !d.isAfter(end) && n < 93; d = d.plusDays(1), n++) {
+                byDate.computeIfAbsent(d, x -> new ArrayList<>()).add(event);
+            }
         }
 
         LocalDate first = ym.atDay(1);

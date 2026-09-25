@@ -55,6 +55,8 @@ public class TodayEventsServlet extends HttpServlet {
         writeJsonString(out, event.getTitle());
         out.print(",\"eventDate\":\"");
         out.print(event.getEventDate());
+        out.print("\",\"eventDateEnd\":\"");
+        out.print(event.getEndDateOrStart());
         out.print("\",\"eventTime\":");
         if (event.getEventTime() == null) {
             out.print("null");

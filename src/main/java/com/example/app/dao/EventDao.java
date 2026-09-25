@@ -22,7 +22,8 @@ import java.util.Optional;
  */
 public class EventDao {
 
-    private static final String SELECT_COLS = "id, title, event_date, event_time, description";
+    private static final String SELECT_COLS =
+            "id, title, event_date, event_date_end, event_time, description";
 
     public List<Event> findByMonth(int year, int month) throws SQLException {
         YearMonth ym = YearMonth.of(year, month);
@@ -32,14 +33,15 @@ public class EventDao {
         String sql = """
                 SELECT %s
                 FROM events
-                WHERE event_date >= ? AND event_date < ?
+                WHERE event_date < ?
+                  AND COALESCE(event_date_end, event_date) >= ?
                 ORDER BY event_date, event_time, id
                 """.formatted(SELECT_COLS);
         List<Event> list = new ArrayList<>();
         try (Connection conn = DbUtil.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setDate(1, Date.valueOf(from));
-            ps.setDate(2, Date.valueOf(to));
+            ps.setDate(1, Date.valueOf(to));
+            ps.setDate(2, Date.valueOf(from));
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     list.add(map(rs));
@@ -53,13 +55,15 @@ public class EventDao {
         String sql = """
                 SELECT %s
                 FROM events
-                WHERE event_date = ?
+                WHERE event_date <= ?
+                  AND COALESCE(event_date_end, event_date) >= ?
                 ORDER BY event_time, id
                 """.formatted(SELECT_COLS);
         List<Event> list = new ArrayList<>();
         try (Connection conn = DbUtil.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setDate(1, Date.valueOf(date));
+            ps.setDate(2, Date.valueOf(date));
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     list.add(map(rs));
@@ -90,11 +94,15 @@ public class EventDao {
             event.setId(existing.getId());
             event.setTitle(existing.getTitle());
             event.setEventDate(existing.getEventDate());
+            event.setEventDateEnd(existing.getEventDateEnd());
             event.setEventTime(existing.getEventTime());
             event.setDescription(existing.getDescription());
             return event;
         }
-        String sql = "INSERT INTO events (title, event_date, event_time, description) VALUES (?, ?, ?, ?)";
+        String sql = """
+                INSERT INTO events (title, event_date, event_date_end, event_time, description)
+                VALUES (?, ?, ?, ?, ?)
+                """;
         try (Connection conn = DbUtil.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
             bind(ps, event);
@@ -111,13 +119,13 @@ public class EventDao {
     public boolean update(Event event) throws SQLException {
         String sql = """
                 UPDATE events
-                SET title = ?, event_date = ?, event_time = ?, description = ?
+                SET title = ?, event_date = ?, event_date_end = ?, event_time = ?, description = ?
                 WHERE id = ?
                 """;
         try (Connection conn = DbUtil.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             bind(ps, event);
-            ps.setLong(5, event.getId());
+            ps.setLong(6, event.getId());
             boolean updated = ps.executeUpdate() == 1;
             deleteDuplicatesOf(event);
             return updated;
@@ -146,6 +154,8 @@ public class EventDao {
                         INNER JOIN events e2
                           ON e2.id < e1.id
                          AND e2.event_date = e1.event_date
+                         AND COALESCE(e2.event_date_end, e2.event_date)
+                             = COALESCE(e1.event_date_end, e1.event_date)
                          AND e2.title = e1.title
                          AND (
                               (e2.event_time IS NULL AND e1.event_time IS NULL)
@@ -171,6 +181,7 @@ public class EventDao {
                 SELECT %s
                 FROM events
                 WHERE event_date = ?
+                  AND COALESCE(event_date_end, event_date) = ?
                   AND title = ?
                   AND (
                        (? IS NULL AND event_time IS NULL)
@@ -188,6 +199,7 @@ public class EventDao {
              PreparedStatement ps = conn.prepareStatement(sql)) {
             int i = 1;
             ps.setDate(i++, Date.valueOf(event.getEventDate()));
+            ps.setDate(i++, Date.valueOf(event.getEndDateOrStart()));
             ps.setString(i++, event.getTitle());
             if (event.getEventTime() == null) {
                 ps.setNull(i++, Types.TIME);
@@ -226,6 +238,7 @@ public class EventDao {
                 DELETE FROM events
                 WHERE id <> ?
                   AND event_date = ?
+                  AND COALESCE(event_date_end, event_date) = ?
                   AND title = ?
                   AND (
                        (? IS NULL AND event_time IS NULL)
@@ -241,6 +254,7 @@ public class EventDao {
             int i = 1;
             ps.setLong(i++, event.getId());
             ps.setDate(i++, Date.valueOf(event.getEventDate()));
+            ps.setDate(i++, Date.valueOf(event.getEndDateOrStart()));
             ps.setString(i++, event.getTitle());
             if (event.getEventTime() == null) {
                 ps.setNull(i++, Types.TIME);
@@ -265,12 +279,13 @@ public class EventDao {
     private void bind(PreparedStatement ps, Event event) throws SQLException {
         ps.setString(1, event.getTitle());
         ps.setDate(2, Date.valueOf(event.getEventDate()));
+        ps.setDate(3, Date.valueOf(event.getEndDateOrStart()));
         if (event.getEventTime() == null) {
-            ps.setNull(3, Types.TIME);
+            ps.setNull(4, Types.TIME);
         } else {
-            ps.setTime(3, Time.valueOf(event.getEventTime()));
+            ps.setTime(4, Time.valueOf(event.getEventTime()));
         }
-        ps.setString(4, event.getDescription());
+        ps.setString(5, event.getDescription());
     }
 
     private Event map(ResultSet rs) throws SQLException {
@@ -280,6 +295,12 @@ public class EventDao {
         Date date = rs.getDate("event_date");
         if (date != null) {
             event.setEventDate(date.toLocalDate());
+        }
+        Date dateEnd = rs.getDate("event_date_end");
+        if (dateEnd != null) {
+            event.setEventDateEnd(dateEnd.toLocalDate());
+        } else {
+            event.setEventDateEnd(event.getEventDate());
         }
         Time time = rs.getTime("event_time");
         if (time != null) {

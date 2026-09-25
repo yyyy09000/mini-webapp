@@ -99,6 +99,43 @@
     return { start: b, end: a };
   }
 
+  function eventRange(data) {
+    return normalizeRange(data.eventDate, data.eventDateEnd || data.eventDate);
+  }
+
+  function formatDateRangeLabel(start, end) {
+    if (!start) {
+      return "";
+    }
+    const e = end || start;
+    if (e === start) {
+      return start;
+    }
+    return start + " 〜 " + e;
+  }
+
+  function monthStartText() {
+    return year + "-" + String(Number(month)).padStart(2, "0") + "-01";
+  }
+
+  function monthEndText() {
+    const y = Number(year);
+    const m = Number(month);
+    const last = new Date(y, m, 0).getDate();
+    return y + "-" + String(m).padStart(2, "0") + "-" + String(last).padStart(2, "0");
+  }
+
+  function rangeOverlapsDisplayedMonth(start, end) {
+    const range = normalizeRange(start, end || start);
+    return range.start <= monthEndText() && range.end >= monthStartText();
+  }
+
+  function rangeHasVisibleDay(start, end) {
+    return listDatesInRange(start, end || start).some(function (d) {
+      return !!document.querySelector('.calendar td.js-day-cell[data-date="' + d + '"]');
+    });
+  }
+
   function listDatesInRange(startText, endText) {
     const range = normalizeRange(startText, endText || startText);
     const from = parseLocalDate(range.start);
@@ -214,13 +251,13 @@
     idEl.value = el.dataset.id || "";
     titleInput.value = el.dataset.title || "";
     dateInput.value = el.dataset.date || "";
-    dateEndInput.value = "";
+    dateEndInput.value = el.dataset.dateEnd || el.dataset.date || "";
     dateInput.removeAttribute("min");
     dateEndInput.removeAttribute("min");
     timeInput.value = el.dataset.time || "";
     descInput.value = el.dataset.description || "";
     deleteBtn.hidden = !idEl.value;
-    endWrap.hidden = true;
+    endWrap.hidden = false;
     clearDaySelection();
     showError("");
     dialog.showModal();
@@ -249,14 +286,16 @@
   }
 
   function syncRow(row, data) {
+    const range = eventRange(data);
     row.dataset.title = data.title || "";
-    row.dataset.date = data.eventDate || "";
+    row.dataset.date = range.start;
+    row.dataset.dateEnd = range.end;
     row.dataset.time = data.eventTime || "";
     row.dataset.description = data.description || "";
     row.querySelectorAll(".js-inline-edit").forEach(function (cell) {
       const field = cell.dataset.field;
       if (field === "date") {
-        cell.textContent = data.eventDate || "";
+        cell.textContent = formatDateRangeLabel(range.start, range.end);
       } else if (field === "time") {
         cell.textContent = displayFor("time", data.eventTime);
       } else if (field === "title") {
@@ -267,35 +306,26 @@
     });
   }
 
-  /** カレンダー上の同じ予定も、リロードせずに更新する */
+  /** カレンダー上の同じ予定も、期間内の各日に出す */
   function syncCalendarEvent(data) {
     const id = String(data.id);
-    const btn = document.querySelector('.calendar .js-open-event[data-id="' + id + '"]');
-    if (!btn) {
-      return;
-    }
-    const li = btn.closest("li");
-    btn.dataset.title = data.title || "";
-    btn.dataset.date = data.eventDate || "";
-    btn.dataset.time = data.eventTime || "";
-    btn.dataset.description = data.description || "";
-    btn.innerHTML =
-      (data.eventTime
-        ? '<span class="ev-time">' + escapeHtml(data.eventTime) + "</span>"
-        : "") +
-      '<span class="ev-title">' +
-      escapeHtml(data.title || "") +
-      "</span>";
-
-    const targetTd = document.querySelector(
-      '.calendar td[data-date="' + data.eventDate + '"]'
-    );
-    if (targetTd && li) {
-      const ul = targetTd.querySelector(".day-events");
-      if (ul && li.parentElement !== ul) {
-        ul.appendChild(li);
+    document.querySelectorAll('.calendar .js-open-event[data-id="' + id + '"]').forEach(function (btn) {
+      const li = btn.closest("li");
+      if (li) {
+        li.remove();
       }
-    }
+    });
+    const range = eventRange(data);
+    listDatesInRange(range.start, range.end).forEach(function (d) {
+      const td = document.querySelector('.calendar td[data-date="' + d + '"]');
+      if (!td) {
+        return;
+      }
+      const ul = td.querySelector(".day-events");
+      if (ul) {
+        ul.appendChild(createCalendarItem(data));
+      }
+    });
   }
 
   function applyEventUpdate(row, data) {
@@ -307,8 +337,10 @@
 
   /** 同じ日・時間・タイトル・説明で、残す id 以外を画面から消す */
   function sameContent(el, data) {
+    const range = eventRange(data);
     return (
-      (el.dataset.date || "") === (data.eventDate || "") &&
+      (el.dataset.date || "") === range.start &&
+      (el.dataset.dateEnd || el.dataset.date || "") === range.end &&
       (el.dataset.time || "") === (data.eventTime || "") &&
       (el.dataset.title || "") === (data.title || "") &&
       (el.dataset.description || "") === (data.description || "")
@@ -339,15 +371,6 @@
     );
     for (let i = 1; i < listRows.length; i++) {
       listRows[i].remove();
-    }
-    const calBtns = document.querySelectorAll(
-      '.calendar .js-open-event[data-id="' + keepId + '"]'
-    );
-    for (let i = 1; i < calBtns.length; i++) {
-      const li = calBtns[i].closest("li");
-      if (li) {
-        li.remove();
-      }
     }
     showEmptyListIfNeeded();
   }
@@ -382,15 +405,17 @@
 
   function createListRow(data) {
     const tr = document.createElement("tr");
+    const range = eventRange(data);
     tr.className = "event-row";
     tr.dataset.id = String(data.id);
     tr.dataset.title = data.title || "";
-    tr.dataset.date = data.eventDate || "";
+    tr.dataset.date = range.start;
+    tr.dataset.dateEnd = range.end;
     tr.dataset.time = data.eventTime || "";
     tr.dataset.description = data.description || "";
 
     const cells = [
-      { field: "date", input: "date", text: data.eventDate || "" },
+      { field: "date", input: "date", text: formatDateRangeLabel(range.start, range.end) },
       { field: "time", input: "time", text: displayFor("time", data.eventTime) },
       { field: "title", input: "text", text: data.title || "" },
       { field: "description", input: "text", text: data.description || "" }
@@ -410,11 +435,13 @@
   function createCalendarItem(data) {
     const li = document.createElement("li");
     const btn = document.createElement("button");
+    const range = eventRange(data);
     btn.type = "button";
     btn.className = "ev-link js-open-event";
     btn.dataset.id = String(data.id);
     btn.dataset.title = data.title || "";
-    btn.dataset.date = data.eventDate || "";
+    btn.dataset.date = range.start;
+    btn.dataset.dateEnd = range.end;
     btn.dataset.time = data.eventTime || "";
     btn.dataset.description = data.description || "";
     btn.innerHTML =
@@ -459,36 +486,34 @@
 
   /** 同じ月なら DOM 更新のみ。別月なら要素を外す／追加不可なら false */
   function upsertEventInDom(data) {
-    if (!isSameDisplayedMonth(data.eventDate)) {
+    const range = eventRange(data);
+    const overlapsMonth = rangeOverlapsDisplayedMonth(range.start, range.end);
+    const visibleOnGrid = rangeHasVisibleDay(range.start, range.end);
+    if (!overlapsMonth && !visibleOnGrid) {
       const existing = findListRow(data.id);
       if (existing) {
         removeEventFromDom(data.id);
       }
       return false;
     }
-    let row = findListRow(data.id);
-    if (row) {
-      applyEventUpdate(row, data);
-      return true;
-    }
-    const tbody = ensureListTbody();
-    if (tbody) {
-      tbody.appendChild(createListRow(data));
-    }
-    const existingBtn = document.querySelector(
-      '.calendar .js-open-event[data-id="' + data.id + '"]'
-    );
-    if (!existingBtn) {
-      const td = document.querySelector(
-        '.calendar td[data-date="' + data.eventDate + '"]'
-      );
-      if (td) {
-        const ul = td.querySelector(".day-events");
-        if (ul) {
-          ul.appendChild(createCalendarItem(data));
+    if (overlapsMonth) {
+      let row = findListRow(data.id);
+      if (row) {
+        syncRow(row, data);
+      } else {
+        const tbody = ensureListTbody();
+        if (tbody) {
+          tbody.appendChild(createListRow(data));
         }
       }
+    } else {
+      const row = findListRow(data.id);
+      if (row) {
+        row.remove();
+        showEmptyListIfNeeded();
+      }
     }
+    syncCalendarEvent(data);
     removeDomDuplicatesOf(data);
     sortEventList();
     return true;
@@ -499,15 +524,12 @@
     if (row) {
       row.remove();
     }
-    const btn = document.querySelector(
-      '.calendar .js-open-event[data-id="' + id + '"]'
-    );
-    if (btn) {
+    document.querySelectorAll('.calendar .js-open-event[data-id="' + id + '"]').forEach(function (btn) {
       const li = btn.closest("li");
       if (li) {
         li.remove();
       }
-    }
+    });
     showEmptyListIfNeeded();
   }
 
@@ -612,12 +634,16 @@
         id: row.dataset.id,
         title: row.dataset.title || "",
         eventDate: row.dataset.date || "",
+        eventDateEnd: row.dataset.dateEnd || row.dataset.date || "",
         eventTime: row.dataset.time || "",
         description: row.dataset.description || ""
       };
 
       if (field === "date") {
         payload.eventDate = next;
+        if (!payload.eventDateEnd || payload.eventDateEnd < next) {
+          payload.eventDateEnd = next;
+        }
       } else if (field === "time") {
         payload.eventTime = next;
       } else if (field === "title") {
@@ -636,17 +662,16 @@
       const monthChanged =
         field === "date" &&
         next &&
-        (next.slice(0, 7) !== row.dataset.date.slice(0, 7));
+        !rangeOverlapsDisplayedMonth(payload.eventDate, payload.eventDateEnd);
 
       postForm(payload)
         .then(function (data) {
           activeEditor = null;
           cell.classList.remove("is-editing");
           if (monthChanged) {
-            reloadMonth(data.eventDate);
+            removeEventFromDom(data.id);
             return;
           }
-          // 同じ月ならリロードせず更新（スクロール位置を維持）
           applyEventUpdate(row, data);
         })
         .catch(function (err) {
@@ -770,23 +795,14 @@
         id: id,
         title: titleInput.value,
         eventDate: dateInput.value,
+        eventDateEnd: dateEndInput.value || dateInput.value,
         eventTime: timeInput.value,
         description: descInput.value
       };
       postForm(payload)
         .then(function (data) {
           dialog.close();
-          const row = findListRow(data.id);
-          if (isSameDisplayedMonth(data.eventDate)) {
-            if (row) {
-              applyEventUpdate(row, data);
-            } else {
-              upsertEventInDom(data);
-            }
-            return;
-          }
-          // 表示中の月から外れた → 消すだけでリロードしない
-          removeEventFromDom(data.id);
+          upsertEventInDom(data);
         })
         .catch(function (err) {
           showError(err.message || "保存に失敗しました");
@@ -820,45 +836,20 @@
     const title = titleInput.value;
     const time = timeInput.value;
     const description = descInput.value;
-    Promise.all(
-      dates.map(function (d) {
-        return postForm({
-          action: "create",
-          title: title,
-          eventDate: d,
-          eventTime: time,
-          description: description
-        });
-      })
-    )
-      .then(function (results) {
+    postForm({
+      action: "create",
+      title: title,
+      eventDate: range.start,
+      eventDateEnd: range.end,
+      eventTime: time,
+      description: description
+    })
+      .then(function (data) {
         dialog.close();
-        // 同じ内容は1件にまとめる（後勝ちの id を残す）
-        const unique = [];
-        const seen = {};
-        results.forEach(function (data) {
-          const key = [
-            data.eventDate || "",
-            data.eventTime || "",
-            data.title || "",
-            data.description || ""
-          ].join("\t");
-          seen[key] = data;
-        });
-        Object.keys(seen).forEach(function (k) {
-          unique.push(seen[k]);
-        });
-        unique.forEach(function (data) {
-          upsertEventInDom(data);
-        });
-        if (
-          unique.length &&
-          unique.every(function (r) {
-            return !isSameDisplayedMonth(r.eventDate);
-          })
-        ) {
+        const ok = upsertEventInDom(data);
+        if (!ok) {
           sessionStorage.setItem("cal-scroll", String(window.scrollY));
-          reloadMonth(unique[0].eventDate);
+          reloadMonth(data.eventDate);
         }
       })
       .catch(function (err) {

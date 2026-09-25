@@ -52,6 +52,7 @@
                                             data-id="${ev.id}"
                                             data-title="<c:out value='${ev.title}'/>"
                                             data-date="${ev.eventDate}"
+                                            data-date-end="${ev.endDateOrStart}"
                                             data-time="<c:out value='${ev.eventTimeLabel}'/>"
                                             data-description="<c:out value='${ev.description}'/>">
                                         <c:if test="${not empty ev.eventTimeLabel}">
@@ -86,9 +87,10 @@
                 data-id="${ev.id}"
                 data-title="<c:out value='${ev.title}'/>"
                 data-date="${ev.eventDate}"
+                data-date-end="${ev.endDateOrStart}"
                 data-time="<c:out value='${ev.eventTimeLabel}'/>"
                 data-description="<c:out value='${ev.description}'/>">
-                <td class="js-inline-edit" data-field="date" data-input="date">${ev.eventDate}</td>
+                <td class="js-inline-edit" data-field="date" data-input="date">${ev.eventDateLabel}</td>
                 <td class="js-inline-edit" data-field="time" data-input="time">
                     <c:choose>
                         <c:when test="${not empty ev.eventTimeLabel}"><c:out value="${ev.eventTimeLabel}"/></c:when>

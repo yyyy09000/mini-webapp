@@ -13,6 +13,7 @@ public class Event {
     private long id;
     private String title;
     private LocalDate eventDate;
+    private LocalDate eventDateEnd;
     private LocalTime eventTime;
     private String description;
 
@@ -48,6 +49,31 @@ public class Event {
 
     public void setEventDate(LocalDate eventDate) {
         this.eventDate = eventDate;
+    }
+
+    public LocalDate getEventDateEnd() {
+        return eventDateEnd;
+    }
+
+    public void setEventDateEnd(LocalDate eventDateEnd) {
+        this.eventDateEnd = eventDateEnd;
+    }
+
+    /** 終了日。未設定なら開始日と同じ。 */
+    public LocalDate getEndDateOrStart() {
+        return eventDateEnd != null ? eventDateEnd : eventDate;
+    }
+
+    /** 一覧用。複数日なら「開始日 〜 終了日」。 */
+    public String getEventDateLabel() {
+        if (eventDate == null) {
+            return "";
+        }
+        LocalDate end = getEndDateOrStart();
+        if (end == null || end.equals(eventDate)) {
+            return eventDate.toString();
+        }
+        return eventDate + " 〜 " + end;
     }
 
     public LocalTime getEventTime() {
